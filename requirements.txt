@@ -1,4 +1,7 @@
 streamlit
 gspread
 pandas
+penpyxl
+google-auth-oauthlib
 google-auth
+xlrd
