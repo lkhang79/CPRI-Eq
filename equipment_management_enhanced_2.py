@@ -13,14 +13,47 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-@st.cache_resource(ttl=300)  # 5분간 캐싱, 연속 다운방지 서버시 필요없음
+@st.cache_resource(ttl=300)  # 5분간 캐싱
 def get_client():
+    """Google Sheets 클라이언트 초기화 - Streamlit Secrets 사용"""
     try:
-        creds = Credentials.from_service_account_file("secrets.json", scopes=SCOPES)
+        # ✅ Streamlit secrets에서 인증 정보 가져오기
+        credentials_dict = dict(st.secrets["gcp_service_account"])
+        
+        creds = Credentials.from_service_account_info(
+            credentials_dict,
+            scopes=SCOPES
+        )
         client = gspread.authorize(creds)
         return client
+        
+    except KeyError as e:
+        st.error(f"⚠️ Streamlit Secrets 설정이 필요합니다!")
+        st.info("""
+        **설정 방법:**
+        1. Streamlit Cloud 대시보드에서 앱 선택
+        2. Settings → Secrets 클릭
+        3. 아래 형식으로 인증 정보 입력:
+        
+        ```toml
+        [gcp_service_account]
+        type = "service_account"
+        project_id = "your-project-id"
+        private_key_id = "your-private-key-id"
+        private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
+        client_email = "your-service-account@...iam.gserviceaccount.com"
+        client_id = "your-client-id"
+        auth_uri = "https://accounts.google.com/o/oauth2/auth"
+        token_uri = "https://oauth2.googleapis.com/token"
+        auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+        client_x509_cert_url = "your-cert-url"
+        ```
+        """)
+        return None
+        
     except Exception as e:
-        st.error(f"⚠️ 인증 실패! secrets.json 파일을 확인하세요.\n에러: {e}")
+        st.error(f"⚠️ 인증 실패: {e}")
+        st.info("Settings → Secrets에서 인증 정보를 확인하세요.")
         return None
 
 # ==========================================
@@ -236,7 +269,7 @@ def login_page():
             else:
                 client = get_client()
                 if not client:
-                    st.error("❌ 시스템 연결 실패. 관리자에게 문의하세요.")
+                    st.error("❌ 시스템 연결 실패. Streamlit Secrets 설정을 확인하세요.")
                     return
                     
                 _, _, user_db, _, _, _ = get_master_data(client)
@@ -270,7 +303,7 @@ def login_page():
                 try:
                     client = get_client()
                     if not client:
-                        st.error("❌ 1단계 실패: secrets.json 파일이 없거나 인증에 실패했습니다.")
+                        st.error("❌ 1단계 실패: Streamlit Secrets 설정이 없거나 인증에 실패했습니다.")
                         return
                     
                     doc = client.open("장비관리시스템")
@@ -304,7 +337,7 @@ def login_page():
                     st.error(f"⚠️ 에러 발생: {e}")
 
 # ==========================================
-# 4. 메인 앱
+# 4. 메인 앱 (나머지 코드는 동일)
 # ==========================================
 def main_app():
     st.set_page_config(page_title="장비가동일지", layout="wide")
@@ -540,7 +573,7 @@ def main_app():
                 except Exception as e:
                     st.error(f"저장 실패: {e}")
         
-        # ===== ✅ 엑셀 업로드 기능 추가 (tab4에서 이동) =====
+        # ===== ✅ 엑셀 업로드 기능 추가 =====
         st.markdown("---")
         st.markdown("---")
         st.subheader("📤 i-Tube 엑셀 파일 일괄 업로드")
@@ -804,14 +837,11 @@ def main_app():
                     
                     st.dataframe(filtered_sorted, use_container_width=True, height=400)
                     
-                    # ... (기존 필터링 및 통계 계산 코드 생략) ...
-
                 # ✅ 다운로드 버튼 섹션 수정
                 st.markdown("---")
                 st.subheader("📥 데이터 내보내기")
                 st.caption(f"'{sel_equip}' 장비의 구글 시트 전체 데이터를 다운로드합니다.")
                 
-                                
                 # 1. 다운로드용 전체 데이터 준비 (날짜 정렬만 수행)
                 df_full_download = df.copy()
                 if '사용시작일' in df_full_download.columns:
@@ -1115,12 +1145,6 @@ def main_app():
                                         )
                                 else:
                                     st.warning(f"⚠️ '{process_col}' 컬럼에 유효한 데이터가 없습니다.")
-                                    with st.expander("🔍 데이터 확인"):
-                                        st.write(f"컬럼명: {process_col}")
-                                        st.write(f"전체 데이터 수: {len(df_filtered)}")
-                                        st.write(f"빈 값이 아닌 데이터 수: {len(valid_data)}")
-                                        st.write("샘플 데이터:")
-                                        st.write(df_filtered[[process_col]].head(10))
                             else:
                                 st.warning("⚠️ 공정구분 컬럼을 찾을 수 없습니다.")
                             
@@ -1140,7 +1164,7 @@ def main_app():
                                         use_container_width=True
                                     )
 
-    # [탭4] 장비정보 (이전 tab5)
+    # [탭4] 장비정보
     with tab4:
         st.subheader("📋 전체 장비 정보")
         st.info("모든 장비의 상세 정보를 조회하고 다운로드할 수 있습니다.")
@@ -1289,8 +1313,6 @@ if st.session_state["logged_in"]:
     main_app()
 else:
     login_page()
-
-
 
 # 푸터
 st.markdown("---")
